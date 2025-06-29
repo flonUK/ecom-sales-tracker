@@ -19,6 +19,7 @@ const normalizeStatus = (status) => {
 router.get('/', verifyToken, async (req, res) => {
   try {
     const { platform, days_back = '30d', status = 'all', page = 1, limit = 100 } = req.query;
+    const offset = (page - 1) * limit;
     const userId = req.user.userId;
 
     let whereClause = 'WHERE user_id = ?';
@@ -61,62 +62,31 @@ router.get('/', verifyToken, async (req, res) => {
     const countResult = await dbHelper.get(countQuery, params);
     const total = countResult.total;
 
-    // Handle unlimited results for "All time" selection
-    let salesQuery;
-    let queryParams = [...params];
+    // Get sales data
+    const salesQuery = `
+      SELECT 
+        id,
+        platform,
+        order_id,
+        item_title,
+        item_id,
+        quantity,
+        price,
+        currency,
+        buyer_name,
+        buyer_email,
+        sale_date,
+        status,
+        shipping_address,
+        tracking_number,
+        created_at
+      FROM sales 
+      ${whereClause} 
+      ORDER BY sale_date DESC 
+      LIMIT ? OFFSET ?
+    `;
     
-    if (limit === 'all' || days_back === 'all') {
-      // No pagination for unlimited results
-      salesQuery = `
-        SELECT 
-          id,
-          platform,
-          order_id,
-          item_title,
-          item_id,
-          quantity,
-          price,
-          currency,
-          buyer_name,
-          buyer_email,
-          sale_date,
-          status,
-          shipping_address,
-          tracking_number,
-          created_at
-        FROM sales 
-        ${whereClause} 
-        ORDER BY sale_date DESC
-      `;
-    } else {
-      // Normal pagination
-      const offset = (page - 1) * limit;
-      salesQuery = `
-        SELECT 
-          id,
-          platform,
-          order_id,
-          item_title,
-          item_id,
-          quantity,
-          price,
-          currency,
-          buyer_name,
-          buyer_email,
-          sale_date,
-          status,
-          shipping_address,
-          tracking_number,
-          created_at
-        FROM sales 
-        ${whereClause} 
-        ORDER BY sale_date DESC 
-        LIMIT ? OFFSET ?
-      `;
-      queryParams.push(limit, offset);
-    }
-    
-    const sales = await dbHelper.all(salesQuery, queryParams);
+    const sales = await dbHelper.all(salesQuery, [...params, limit, offset]);
 
     // Normalize statuses in the response
     const normalizedSales = sales.map(sale => ({
@@ -128,9 +98,9 @@ router.get('/', verifyToken, async (req, res) => {
       sales: normalizedSales,
       pagination: {
         page: parseInt(page),
-        limit: limit === 'all' ? total : parseInt(limit),
+        limit: parseInt(limit),
         total,
-        pages: limit === 'all' ? 1 : Math.ceil(total / limit)
+        pages: Math.ceil(total / limit)
       }
     });
   } catch (error) {
@@ -473,51 +443,26 @@ router.get('/customers', verifyToken, async (req, res) => {
       params.push(cutoffDate.toISOString());
     }
 
-    // Handle unlimited results for "All time" selection
-    let customerQuery;
-    let queryParams = [...params];
+    // Get customer data with LTV calculations
+    const customerQuery = `
+      SELECT 
+        buyer_email,
+        buyer_name,
+        COUNT(DISTINCT order_id) as order_count,
+        SUM(price * quantity) as total_spent,
+        MIN(sale_date) as first_order,
+        MAX(sale_date) as last_order,
+        AVG(price * quantity) as avg_order_value,
+        COUNT(*) as total_items
+      FROM sales 
+      ${whereClause}
+      AND (buyer_name IS NOT NULL AND buyer_name != '')
+      GROUP BY buyer_name
+      ORDER BY total_spent DESC
+      LIMIT ?
+    `;
     
-    if (limit === 'all' || days_back === 'all') {
-      // No limit for unlimited results
-      customerQuery = `
-        SELECT 
-          buyer_email,
-          buyer_name,
-          COUNT(DISTINCT order_id) as order_count,
-          SUM(price * quantity) as total_spent,
-          MIN(sale_date) as first_order,
-          MAX(sale_date) as last_order,
-          AVG(price * quantity) as avg_order_value,
-          COUNT(*) as total_items
-        FROM sales 
-        ${whereClause}
-        AND (buyer_name IS NOT NULL AND buyer_name != '')
-        GROUP BY buyer_name
-        ORDER BY total_spent DESC
-      `;
-    } else {
-      // Normal limit
-      customerQuery = `
-        SELECT 
-          buyer_email,
-          buyer_name,
-          COUNT(DISTINCT order_id) as order_count,
-          SUM(price * quantity) as total_spent,
-          MIN(sale_date) as first_order,
-          MAX(sale_date) as last_order,
-          AVG(price * quantity) as avg_order_value,
-          COUNT(*) as total_items
-        FROM sales 
-        ${whereClause}
-        AND (buyer_name IS NOT NULL AND buyer_name != '')
-        GROUP BY buyer_name
-        ORDER BY total_spent DESC
-        LIMIT ?
-      `;
-      queryParams.push(parseInt(limit));
-    }
-    
-    const customers = await dbHelper.all(customerQuery, queryParams);
+    const customers = await dbHelper.all(customerQuery, [...params, parseInt(limit)]);
 
     // Calculate summary metrics
     const totalCustomers = customers.length;

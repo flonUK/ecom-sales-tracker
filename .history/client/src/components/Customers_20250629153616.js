@@ -15,11 +15,7 @@ const Customers = () => {
   const fetchCustomerData = useCallback(async () => {
     try {
       setLoading(true);
-      
-      // Request unlimited results when "All time" is selected
-      const limit = timeRange === 'all' ? 'all' : '100';
-      
-      const response = await fetch(`/api/sales/customers?days_back=${timeRange}&platform=${selectedPlatform}&limit=${limit}`, {
+      const response = await fetch(`/api/sales/customers?days_back=${timeRange}&platform=${selectedPlatform}&limit=100`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       

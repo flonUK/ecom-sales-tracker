@@ -473,51 +473,26 @@ router.get('/customers', verifyToken, async (req, res) => {
       params.push(cutoffDate.toISOString());
     }
 
-    // Handle unlimited results for "All time" selection
-    let customerQuery;
-    let queryParams = [...params];
+    // Get customer data with LTV calculations
+    const customerQuery = `
+      SELECT 
+        buyer_email,
+        buyer_name,
+        COUNT(DISTINCT order_id) as order_count,
+        SUM(price * quantity) as total_spent,
+        MIN(sale_date) as first_order,
+        MAX(sale_date) as last_order,
+        AVG(price * quantity) as avg_order_value,
+        COUNT(*) as total_items
+      FROM sales 
+      ${whereClause}
+      AND (buyer_name IS NOT NULL AND buyer_name != '')
+      GROUP BY buyer_name
+      ORDER BY total_spent DESC
+      LIMIT ?
+    `;
     
-    if (limit === 'all' || days_back === 'all') {
-      // No limit for unlimited results
-      customerQuery = `
-        SELECT 
-          buyer_email,
-          buyer_name,
-          COUNT(DISTINCT order_id) as order_count,
-          SUM(price * quantity) as total_spent,
-          MIN(sale_date) as first_order,
-          MAX(sale_date) as last_order,
-          AVG(price * quantity) as avg_order_value,
-          COUNT(*) as total_items
-        FROM sales 
-        ${whereClause}
-        AND (buyer_name IS NOT NULL AND buyer_name != '')
-        GROUP BY buyer_name
-        ORDER BY total_spent DESC
-      `;
-    } else {
-      // Normal limit
-      customerQuery = `
-        SELECT 
-          buyer_email,
-          buyer_name,
-          COUNT(DISTINCT order_id) as order_count,
-          SUM(price * quantity) as total_spent,
-          MIN(sale_date) as first_order,
-          MAX(sale_date) as last_order,
-          AVG(price * quantity) as avg_order_value,
-          COUNT(*) as total_items
-        FROM sales 
-        ${whereClause}
-        AND (buyer_name IS NOT NULL AND buyer_name != '')
-        GROUP BY buyer_name
-        ORDER BY total_spent DESC
-        LIMIT ?
-      `;
-      queryParams.push(parseInt(limit));
-    }
-    
-    const customers = await dbHelper.all(customerQuery, queryParams);
+    const customers = await dbHelper.all(customerQuery, [...params, parseInt(limit)]);
 
     // Calculate summary metrics
     const totalCustomers = customers.length;

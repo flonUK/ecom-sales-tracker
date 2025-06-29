@@ -32,11 +32,6 @@ const Sales = () => {
         status: filters.status
       });
 
-      // Request unlimited results when "All time" is selected
-      if (filters.dateRange === 'all') {
-        queryParams.append('limit', 'all');
-      }
-
       const response = await fetch(`/api/sales?${queryParams}`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -371,7 +366,6 @@ const Sales = () => {
               <option value="30d">Last 30 days</option>
               <option value="90d">Last 90 days</option>
               <option value="1y">Last year</option>
-              <option value="all">All time</option>
             </select>
           </div>
 
